@@ -32,8 +32,10 @@ OpenAI-compatible LLM endpoint — e.g. `llama-server` on `localhost:8080`
 (override with `RUSTY_LLM_URL`).
 
 ```bash
-cd ~/projects/artifacts/rusty && cargo install --path . --bin rusty --root ~/.local
+git clone https://github.com/TheLakeMan/rusty
+cd rusty && cargo install --path . --bin rusty --root ~/.local
 
+git clone https://github.com/TheLakeMan/loop
 cd loop
 rusty          # then, in the REPL:
 ```

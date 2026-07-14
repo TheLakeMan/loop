@@ -5,7 +5,7 @@ set -u
 RUSTY="${RUSTY:-rusty}"
 if ! command -v "$RUSTY" >/dev/null 2>&1; then
   echo "error: '$RUSTY' not found on PATH." >&2
-  echo "Install it:  cd ~/projects/artifacts/rusty && cargo install --path . --bin rusty --root ~/.local" >&2
+  echo "Install it:  git clone https://github.com/TheLakeMan/rusty && cd rusty && cargo install --path . --bin rusty --root ~/.local" >&2
   exit 1
 fi
 
