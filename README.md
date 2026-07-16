@@ -23,7 +23,7 @@ telemetry. Built on [Rusty](https://github.com/TheLakeMan/rusty) — a
 zero-dependency Lisp interpreter in Rust — so the whole vessel runs on small,
 ordinary hardware with a local LLM.
 
-**Version:** 0.4.0
+**Version:** 0.5.0
 
 ## Quickstart
 
@@ -61,6 +61,13 @@ question), or **complete** (they seem done for today). The advisor is wrapped
 so that *no LLM failure can end a live telling* — a timeout or truncation
 quietly degrades to "continue". Their final answer is always saved before a
 telling closes.
+
+A **complete** verdict is a place to **rest**, not the end. The telling is
+saved and the session stays *resumable*: `(loop-resume id)` picks it back up on
+a fresh question, and a warm rest closing says as much. A telling only truly
+**finishes** — with the final closing — when every question in the bank has
+been answered. Resting for the day and finishing a life story are different
+things, and loop keeps them apart.
 
 Reasoning LLMs are supported: the seats carry enough token budget for the
 model to think before it answers, and the interpreter refuses a reply that was
@@ -114,7 +121,7 @@ promise is the small one: if these words changed, you will know.
 | `loop-core.lisp` | interview engine: sessions, turns, advisor, persistence |
 | `loop-questions.lisp` | question bank — 22 questions across 10 categories |
 | `loop-soul.lisp` | the soul layer: portrait + witness + `(loop-remember)` |
-| `loop-test.lisp` | hermetic golden test — 14 invariants, no LLM, no disk |
+| `loop-test.lisp` | hermetic golden test — 16 invariants, no LLM, no disk |
 | `expected_loop.txt` | the golden output |
 | `loop-integrity-drive.lisp` | drives a real on-disk session (run under a throwaway `$HOME`) |
 | `loop-integrity-verify.lisp` | reports the integrity verdict for that session |

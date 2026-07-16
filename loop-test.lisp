@@ -250,19 +250,53 @@
                   "6b-6 pending-question at depth 2 is the mid follow-up")))
 
 
-;; ── Invariant 7: Complete ───────────────────────────────────────────────────────
+;; ── Invariant 7: Rest ("done for today" is resumable, not the end) ─────────────
+;; The advisor's "complete" verdict means the person is done FOR TODAY — a RESTING
+;; point, not the end of the telling. The session must stay resumable (status
+;; "resting", never sealed "complete"), advance past the answered question so a
+;; later resume starts on a fresh one, show the rest closing (distinct from the
+;; final one), and still keep the last words. Only exhausting the whole bank is a
+;; true end (invariant 15).
 (reset-all)
 (set! *advice-script* (list "complete"))
-(let* ((r0 (start-session "Done"))
+(let* ((r0 (start-session "Rest"))
        (s0 (nth r0 0))
        (r1 (loop-turn s0 "I'm tired now"))
        (s1 (nth r1 0))
        (msg (nth r1 1)))
-  (assert-equal "complete" (session-status s1) "7a status is complete")
-  (assert-equal (loop-closing s1) msg "7b message equals loop-closing output")
-  ;; Their last words must reach the transcript — completing must not drop them.
-  (assert-equal 1 (length *responses*) "7c final response is saved")
-  (assert-equal "I'm tired now" (nth (nth *responses* 0) 2) "7d final words kept verbatim"))
+  (assert-equal "resting" (session-status s1) "7a done-for-today is 'resting', not 'complete'")
+  (assert-equal (loop-rest-closing s1) msg "7b message is the rest closing")
+  (assert-true (not (equal? (loop-rest-closing s1) (loop-closing s1)))
+               "7c rest closing and final closing are distinct")
+  (assert-equal "childhood-002" (session-current-qid s1)
+                "7d advanced past the answered question — a resume starts fresh")
+  (assert-true (list-contains? (session-asked-ids s1) "childhood-001")
+               "7e the answered question is marked asked")
+  ;; Their last words must reach the transcript — resting must not drop them,
+  ;; and must save exactly once (the advance does the single save).
+  (assert-equal 1 (length *responses*) "7f final words saved exactly once")
+  (assert-equal "I'm tired now" (nth (nth *responses* 0) 2) "7g final words kept verbatim"))
+
+
+;; ── Invariant 7b: A rested session resumes and continues ────────────────────────
+;; Resuming reactivates (status back to "active") without needing a turn, and the
+;; next answer carries on normally — the telling paused for the day, not ended.
+(reset-all)
+(set! *advice-script* (list "complete"))
+(let* ((r0     (start-session "Return"))
+       (s0     (nth r0 0))
+       (rested (nth (loop-turn s0 "enough for today") 0)))
+  (assert-equal "resting" (session-status rested) "7b-1 rested after a 'complete' verdict")
+  (let ((woken (nth (resume-session (session-id rested)) 0)))
+    (assert-equal "active" (session-status woken) "7b-2 resume reactivates a rested session")
+    (assert-equal (session-current-qid rested) (session-current-qid woken)
+                  "7b-3 resume keeps the fresh question the rest advanced to"))
+  ;; Answering a rested session also flips it active (the same-process path).
+  (let ((s-next (nth (loop-turn rested "the smell of bread") 0)))
+    (assert-equal "active" (session-status s-next)
+                  "7b-4 answering a rested session makes it active again")
+    (assert-equal "childhood-003" (session-current-qid s-next)
+                  "7b-5 the interview proceeds to the next question")))
 
 
 ;; ── Invariant 8: save/load fidelity (field-by-field) ────────────────────────────
@@ -419,6 +453,31 @@
               "14d unknown session -> unknown-session, not intact")
 (assert-equal (list) (nth (loop-integrity "loop-nope-0") 1)
               "14e unknown session reports no rows")
+
+
+;; ── Invariant 15: Genuine completion — the whole bank answered ─────────────────
+;; With the advisor always saying "continue", every question is asked once; the
+;; turn that answers the LAST one seals the session "complete" and returns the
+;; FINAL closing (loop-closing), NOT a rest. This is the only true end, and the
+;; only path that reaches loop-closing — so it is what pins that message.
+(reset-all)
+(define (drive-until-complete session cap)
+  (if (<= cap 0)
+    (list session "CAP-HIT")                 ; safety net; the bank is 22 questions
+    (let* ((r (loop-turn session "resp"))
+           (s (nth r 0)))
+      (if (equal? (session-status s) "complete")
+        r
+        (drive-until-complete s (- cap 1))))))
+(let* ((r0    (start-session "Whole"))
+       (s0    (nth r0 0))
+       (final (drive-until-complete s0 40))
+       (fs    (nth final 0))
+       (fmsg  (nth final 1)))
+  (assert-equal "complete" (session-status fs) "15a answering the last question seals 'complete'")
+  (assert-equal (loop-closing fs) fmsg "15b the final message is loop-closing, not a rest")
+  (assert-equal 22 (length (session-asked-ids fs)) "15c every one of the 22 questions was asked")
+  (assert-true (all-unique? (session-asked-ids fs)) "15d no question asked twice"))
 
 
 (print "LOOP TESTS PASSED")

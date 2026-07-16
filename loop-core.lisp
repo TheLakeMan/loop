@@ -5,7 +5,7 @@
 ;; loop-core.lisp — Loop Interview Engine v0.3.0
 ;; ─────────────────────────────────────────────────────────────────────────────
 
-(define LOOP-VERSION "0.4.0")
+(define LOOP-VERSION "0.5.0")
 (define MAX-FOLLOW-UPS 3)
 
 
@@ -88,6 +88,12 @@
       (if (equal? field "qid")      value qid)
       (if (equal? field "depth")    value depth)
       (if (equal? field "asked")    value asked))))
+
+;; Serving a new question means the session is being told again — flip any
+;; resumable state ("paused"/"resting") back to "active". This is the single
+;; place a live question restores active status, so a resumed session that only
+;; meant to rest doesn't stay flagged as resting once the telling continues.
+(define (session-activate s) (session-set s "status" "active"))
 
 
 ;; ── Persistence ───────────────────────────────────────────────────────────────
@@ -312,7 +318,7 @@
             (< depth MAX-FOLLOW-UPS)
             (not (null? fups))
             (< depth (length fups)))
-       (list (session-set session "depth" (+ depth 1))
+       (list (session-activate (session-set session "depth" (+ depth 1)))
              (nth fups depth)))
 
       ;; Done with this question — mark as asked, find next
@@ -326,7 +332,7 @@
               (next-q (next-question s cat)))
          (if next-q
            ;; Next question in same category
-           (list (session-set s "qid" (question-id next-q))
+           (list (session-activate (session-set s "qid" (question-id next-q)))
                  (question-text next-q))
            ;; Try next category
            (let ((next-cat (next-category cat)))
@@ -334,7 +340,7 @@
                (let* ((s2  (session-set s "category" next-cat))
                       (nq  (next-question s2 next-cat)))
                  (if nq
-                   (list (session-set s2 "qid" (question-id nq))
+                   (list (session-activate (session-set s2 "qid" (question-id nq)))
                          (str "Let's move on. " (question-text nq)))
                    (list (session-set s "status" "complete")
                          (loop-closing s))))
@@ -380,15 +386,18 @@
     (let ((advice (llm-advise session transcript)))
       (let ((result
         (if (equal? advice "complete")
-          ;; Their last words still belong in the transcript — save before
-          ;; closing, or the response that ended the telling is lost.
-          (begin
-            (save-response (session-id session)
-                           (session-current-qid session)
-                           (session-follow-up-depth session)
-                           transcript)
-            (list (session-set session "status" "complete")
-                  (loop-closing session)))
+          ;; "Done for today" is a place to REST, not the end of the telling.
+          ;; Advance past this question (which also saves the final words, once)
+          ;; so a later resume starts on a fresh one, then mark the session
+          ;; "resting" — resumable — rather than "complete", which would seal it
+          ;; shut. If advancing happens to exhaust the whole bank, then it really
+          ;; was the end, and advance-session already said so.
+          (let* ((advanced (advance-session session transcript "continue"))
+                 (s2       (nth advanced 0)))
+            (if (equal? (session-status s2) "complete")
+              advanced
+              (list (session-set s2 "status" "resting")
+                    (loop-rest-closing s2))))
           (advance-session session transcript advice))))
         (save-session (nth result 0))
         result))))
@@ -425,14 +434,20 @@
       (else (question-text cur-q)))))
 
 (define (resume-session id)
-  (let ((session (load-session id)))
-    (if session
-      (list session
-        (str "Welcome back"
-             (if (string? (session-subject session))
-               (str ", " (session-subject session)) "")
-             ". We were here:\n\n"
-             (pending-question session)))
+  (let ((loaded (load-session id)))
+    (if loaded
+      ;; Coming back reactivates a paused OR rested session; a completed one
+      ;; stays completed (its bank is exhausted — there is nothing left to ask).
+      (let ((session (if (or (equal? (session-status loaded) "paused")
+                             (equal? (session-status loaded) "resting"))
+                       (session-activate loaded)
+                       loaded)))
+        (list session
+          (str "Welcome back"
+               (if (string? (session-subject session))
+                 (str ", " (session-subject session)) "")
+               ". We were here:\n\n"
+               (pending-question session))))
       (let ((known (list-sessions)))
         (list #f (str "Session not found: " id
                       (if (null? known) ""
@@ -465,9 +480,13 @@
       (print "")
       (print (nth result 1))
       (print "")
-      (if (equal? (session-status *session*) "complete")
-        (print "; Session complete.")
-        (print "; (loop-say \"...\") | (loop-pause) | (loop-status)")))))
+      (cond
+        ((equal? (session-status *session*) "complete")
+         (print "; Session complete."))
+        ((equal? (session-status *session*) "resting")
+         (print "; Resting here for today. (loop-say \"...\") to keep going, or (loop-pause)."))
+        (else
+         (print "; (loop-say \"...\") | (loop-pause) | (loop-status)"))))))
 
 (define (loop-pause)
   (if *session*
@@ -513,10 +532,22 @@
 
 ;; ── Closing ───────────────────────────────────────────────────────────────────
 
+;; The telling is finished — the whole question bank has been answered. This is
+;; the final valediction; the session is sealed "complete" and not resumed.
 (define (loop-closing session)
   (str "Thank you, " (session-subject session) ". "
        "What you've shared today is a gift. "
        "The people who love you will carry this with them always."))
+
+;; A resting point, not the end — the person is done FOR TODAY. Warm, and honest
+;; that there is more to come; the session is "resting" and can be resumed, which
+;; picks up on the next question. Mechanics (the resume command) are printed by
+;; loop-say/loop-chat, so this stays prose.
+(define (loop-rest-closing session)
+  (str "Thank you, " (session-subject session) ". "
+       "That feels like a good place to rest for today. "
+       "What you've shared is safe and kept. "
+       "When you're ready, we can pick up right where we left off."))
 
 (print (str "Loop v" LOOP-VERSION " core loaded."))
 
@@ -537,8 +568,12 @@
       (print "└─────────────────────────────────────────┘")
       (print "")
       (let go ()
-        (if (equal? (session-status *session*) "complete")
-          (print "[ Session complete ]")
+        (cond
+          ((equal? (session-status *session*) "complete")
+           (print "[ Session complete ]"))
+          ((equal? (session-status *session*) "resting")
+           (print "[ Resting for today — resume anytime to go on ]"))
+          (else
           (let ((input (chomp (shell "printf 'You: ' >&2 && IFS= read -r line && printf '%s' \"$line\""))))
             (cond
               ((or (equal? input "quit") (equal? input "exit") (equal? input ""))
@@ -550,4 +585,4 @@
                  (print "")
                  (print (str "Loop: " (nth result 1)))
                  (print "")
-                 (go))))))))))
+                 (go)))))))))))

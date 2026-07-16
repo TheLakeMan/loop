@@ -1,4 +1,4 @@
-Loop v0.4.0 core loaded.
+Loop v0.5.0 core loaded.
 Loop questions loaded: 22 questions across 10 categories.
 Loop soul loaded (portrait + witness).
 1a start category is childhood
@@ -34,10 +34,18 @@ Paused. Resume with: (loop-resume "loop-PauseB-1000000")
 6b-4 depth round-trips (2)
 6b-5 asked list round-trips
 6b-6 pending-question at depth 2 is the mid follow-up
-7a status is complete
-7b message equals loop-closing output
-7c final response is saved
-7d final words kept verbatim
+7a done-for-today is 'resting', not 'complete'
+7b message is the rest closing
+7c rest closing and final closing are distinct
+7d advanced past the answered question — a resume starts fresh
+7e the answered question is marked asked
+7f final words saved exactly once
+7g final words kept verbatim
+7b-1 rested after a 'complete' verdict
+7b-2 resume reactivates a rested session
+7b-3 resume keeps the fresh question the rest advanced to
+7b-4 answering a rested session makes it active again
+7b-5 the interview proceeds to the next question
 8a id
 8b subject
 8c started-at
@@ -100,4 +108,8 @@ If this is kept, keep it as what it is — not a mind that remembers Marguerite,
 14c a deleted transcript is a change, not a silence
 14d unknown session -> unknown-session, not intact
 14e unknown session reports no rows
+15a answering the last question seals 'complete'
+15b the final message is loop-closing, not a rest
+15c every one of the 22 questions was asked
+15d no question asked twice
 LOOP TESTS PASSED
