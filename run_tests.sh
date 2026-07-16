@@ -105,6 +105,35 @@ hash_check() {
 }
 hash_check
 
+# ── Package check: loop is a valid, cwd-independent Rusty package ──────────────
+# Copies loop into a throwaway $HOME/.rusty/packages/loop (where pkg would put
+# it), then runs the probe from an UNRELATED cwd. Proves the manifest is
+# well-formed and that loading the package entry (loop-pkg.lisp) brings the whole
+# engine up despite Rusty's cwd-relative `load` — the reason the package needs an
+# absolute-path entry rather than reusing loop.lisp. No pkg.lisp, LLM, or network.
+pkg_entry_check() {
+  local label="package — manifest valid + entry loads from a foreign cwd"
+  local repo; repo="$(pwd)"
+  local th; th="$(mktemp -d "${TMPDIR:-/tmp}/loop-pkg-XXXXXX")"
+  case "$th" in /tmp/*|"${TMPDIR%/}"/*) ;; *) echo "❌  $label (unsafe tmp: $th)"; fail=1; return;; esac
+  local dest="$th/.rusty/packages/loop"
+  mkdir -p "$dest"
+  cp package.lisp loop-pkg.lisp loop-core.lisp loop-questions.lisp loop-soul.lisp "$dest/"
+
+  # Run from $th (a foreign cwd): loop-core.lisp is NOT resolvable by bare name
+  # here, so bare relative loads would fail — only absolute-path loading works.
+  local out; out="$(cd "$th" && HOME="$th" "$RUSTY" "$repo/loop-pkg-probe.lisp" 2>&1)"
+
+  local ok=1
+  printf '%s\n' "$out" | grep -q '^MANIFEST-OK$'       || { echo "   manifest not well-formed"; ok=0; }
+  printf '%s\n' "$out" | grep -q '^PKG-ENTRY-OK$'      || { echo "   package entry did not load the engine"; ok=0; }
+  printf '%s\n' "$out" | grep -q '^SELFCHECK-GUARDED-OK$' || { echo "   loop-self-check did not degrade without pkg.lisp"; ok=0; }
+
+  rm -rf "$th"
+  if [ "$ok" -eq 1 ]; then echo "✅  $label"; else echo "❌  $label"; fail=1; fi
+}
+pkg_entry_check
+
 if [ "$fail" -eq 0 ]; then
   echo "🎉 ALL PASSED"
 else

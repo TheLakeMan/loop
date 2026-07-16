@@ -11,7 +11,7 @@
 
 (print "")
 (print "╔════════════════════════════════════╗")
-(print "║           L O O P  v0.4            ║")
+(print "║           L O O P  v0.6            ║")
 (print "║   A memory vessel for the living.  ║")
 (print "╚════════════════════════════════════╝")
 (print "")

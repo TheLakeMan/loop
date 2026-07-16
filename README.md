@@ -23,7 +23,7 @@ telemetry. Built on [Rusty](https://github.com/TheLakeMan/rusty) — a
 zero-dependency Lisp interpreter in Rust — so the whole vessel runs on small,
 ordinary hardware with a local LLM.
 
-**Version:** 0.5.0
+**Version:** 0.6.0
 
 ## Quickstart
 
@@ -113,11 +113,44 @@ Resisting *that* would need an anchor somewhere they cannot reach, which loop
 deliberately does not have — it is a local vessel, not a notary. The honest
 promise is the small one: if these words changed, you will know.
 
+## Installing as a verified package
+
+loop is also a [Rusty package](https://github.com/TheLakeMan/rusty) — a git repo
+with a `package.lisp` manifest — so instead of "clone and trust" you can install
+it in a way you can *check*:
+
+```lisp
+(load "pkg.lisp")                                    ; Rusty's package manager
+(pkg-install "https://github.com/TheLakeMan/loop")   ; clone + auto-lock
+(pkg-load "loop")                                    ; bring the engine up
+```
+
+`pkg-install` records a fingerprint — every file with its SHA-256 — the moment
+the clone lands, and stores it *outside* the package tree (so a later `git pull`
+in there can't quietly rewrite its own alibi). From then on:
+
+- `(loop-self-check)` — has loop's own installed code drifted since install day?
+  → `verified`, or `(changed ((file what) …))` naming exactly what moved.
+- `(pkg-verify "loop" fp)` — do the installed bytes match a fingerprint the
+  publisher gave you **out of band** — a release note, say, never one shipped
+  inside loop's own repo (which would prove nothing, since the same commit that
+  changes the files changes the fingerprint beside them)? → `verified` / `changed`.
+
+**What this hardens, exactly.** It hardens *distribution*: it turns "I cloned
+some bytes" into "these are the bytes that were published, and nothing has
+changed them since." It is **not** a sandbox, and **not** proof against a
+determined local attacker (who can rewrite the lock as easily as the files it
+vouches for) or a hostile publisher (whose out-of-band fingerprint you would be
+trusting). Same one-machine scope as the integrity check above: it tells you
+whether something *changed*, never that something is *safe*.
+
 ## Files
 
 | File | Role |
 |------|------|
-| `loop.lisp` | entry point — loads everything, prints the banner |
+| `loop.lisp` | dev entry point — loads everything by name (run from the loop dir) |
+| `package.lisp` | Rusty package manifest — `name` / `version` / `main` |
+| `loop-pkg.lisp` | package entry (`main`) — loads the engine by absolute path + `loop-self-check` |
 | `loop-core.lisp` | interview engine: sessions, turns, advisor, persistence |
 | `loop-questions.lisp` | question bank — 22 questions across 10 categories |
 | `loop-soul.lisp` | the soul layer: portrait + witness + `(loop-remember)` |
@@ -125,6 +158,7 @@ promise is the small one: if these words changed, you will know.
 | `expected_loop.txt` | the golden output |
 | `loop-integrity-drive.lisp` | drives a real on-disk session (run under a throwaway `$HOME`) |
 | `loop-integrity-verify.lisp` | reports the integrity verdict for that session |
+| `loop-pkg-probe.lisp` | package check — manifest valid + entry loads from a foreign cwd |
 
 ## Tests
 
@@ -132,15 +166,18 @@ promise is the small one: if these words changed, you will know.
 ./run_tests.sh
 ```
 
-Three checks. The **golden test** is fully hermetic: the LLM seams, the clock,
+Four checks. The **golden test** is fully hermetic: the LLM seams, the clock,
 and every disk path are stubbed in-memory, so it runs identically anywhere
-`rusty` runs and never touches a real `~/.loop/` or `~/.rusty/`. The two
-**real-disk checks** run the genuine persistence path under a throwaway `$HOME`
-— one proves a session only ever *adds* its own `loop.*` keys, leaving
-pre-existing memory byte-identical; the other proves the integrity check both
-reports `intact` on an untouched session *and* actually bites, catching an
-edited transcript and a deleted one. Your real `~/.loop/` and `~/.rusty/` are
-never read or written by any of them.
+`rusty` runs and never touches a real `~/.loop/` or `~/.rusty/`. Two **real-disk
+checks** run the genuine persistence path under a throwaway `$HOME` — one proves
+a session only ever *adds* its own `loop.*` keys, leaving pre-existing memory
+byte-identical; the other proves the integrity check both reports `intact` on an
+untouched session *and* actually bites, catching an edited transcript and a
+deleted one. The **package check** copies loop into a throwaway
+`$HOME/.rusty/packages/loop` and loads it from an unrelated working directory,
+proving the manifest is well-formed and that the package entry brings the engine
+up regardless of cwd. Your real `~/.loop/` and `~/.rusty/` are never read or
+written by any of them.
 
 loop needs [Rusty](https://github.com/TheLakeMan/rusty) **0.45.0 or newer**
 (that release added the `file-hash` builtin the integrity check is built on).

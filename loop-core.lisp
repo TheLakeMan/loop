@@ -5,7 +5,7 @@
 ;; loop-core.lisp — Loop Interview Engine v0.3.0
 ;; ─────────────────────────────────────────────────────────────────────────────
 
-(define LOOP-VERSION "0.5.0")
+(define LOOP-VERSION "0.6.0")  ; NB: also bump package.lisp (version) + README + loop.lisp banner
 (define MAX-FOLLOW-UPS 3)
 
 
