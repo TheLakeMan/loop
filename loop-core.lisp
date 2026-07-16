@@ -5,7 +5,7 @@
 ;; loop-core.lisp — Loop Interview Engine v0.3.0
 ;; ─────────────────────────────────────────────────────────────────────────────
 
-(define LOOP-VERSION "0.3.1")
+(define LOOP-VERSION "0.4.0")
 (define MAX-FOLLOW-UPS 3)
 
 
@@ -96,6 +96,15 @@
 
 (define (skey id field) (str "loop." id "." field))
 
+;; Where a response lands, and where its hash is remembered. Both derive from
+;; the session id + response number, so a check can find a file without a
+;; directory listing — a transcript that vanished is then a *missing* verdict
+;; rather than a silently shorter list.
+(define (response-file id n)
+  (str (responses-dir) "/" id "-" (number->string n) ".txt"))
+
+(define (rhash-key id n) (skey id (str "r" (number->string n) ".hash")))
+
 (define (save-session session)
   (ensure-dirs)
   (let* ((id    (session-id session))
@@ -152,15 +161,99 @@
   (let* ((rkey   (skey session-id "rcount"))
          (rcount (let ((r (recall rkey)))
                    (if (nil? r) 0 (string->number r))))
-         (fname  (str (responses-dir) "/"
-                      session-id "-"
-                      (number->string rcount) ".txt")))
+         (fname  (response-file session-id rcount)))
     (file-write fname
       (str "question: " question-id "\n"
            "depth: " (number->string depth) "\n"
            "---\n"
            transcript "\n"))
+    ;; Seal it: record what we just wrote, so (loop-integrity id) can later tell
+    ;; whether the file still says it. file-hash is Nil if the file can't be read
+    ;; back — we'd rather leave the response unsealed and say so than remember a
+    ;; Nil as though it were a hash.
+    (let ((h (file-hash fname)))
+      (if (string? h) (remember (rhash-key session-id rcount) h)))
     (remember rkey (number->string (+ rcount 1)))))
+
+
+;; ── Integrity ─────────────────────────────────────────────────────────────────
+;; Every response is hashed when it is written, so a later check can tell whether
+;; the stored transcripts still say what the session recorded.
+;;
+;; HONEST SCOPE — read this before describing the feature to anyone. This is
+;; tamper-EVIDENCE, session-scoped: it proves nothing was *quietly* changed (a
+;; stray editor, a bad sync, a half-finished restore). It is NOT unforgeable, and
+;; not adversarial crypto: the hashes live in the same memory.lisp the responses
+;; are indexed from, so whoever can rewrite a transcript can rewrite its hash in
+;; the same breath. Resisting that needs an anchor somewhere they cannot reach,
+;; which loop deliberately does not have — it is a local, hermetic vessel.
+
+;; Verdict for one response: ok | changed | missing | unsealed.
+;; "unsealed" is absence of evidence, not evidence of change — it means no hash
+;; was recorded (e.g. a response written by a loop older than this one), so the
+;; check declines to speak for that file rather than guessing.
+(define (check-response id n)
+  (let* ((fname    (response-file id n))
+         (expected (recall (rhash-key id n)))
+         (actual   (file-hash fname)))
+    (list fname
+      (cond
+        ((nil? expected)          "unsealed")
+        ((nil? actual)            "missing")
+        ((equal? expected actual) "ok")
+        (else                     "changed")))))
+
+(define (response-count id)
+  (let ((r (recall (skey id "rcount"))))
+    (if (nil? r) 0 (string->number r))))
+
+;; (loop-integrity id) -> (overall rows), rows = ((filename verdict) ...).
+;; Data, not printing — so a caller can act on it. Overall keeps "unsealed"
+;; distinct from "intact": a run where some files can't be spoken for is not the
+;; same claim as one where every file matched.
+(define (loop-integrity id)
+  (if (nil? (recall (skey id "status")))
+    (list "unknown-session" (list))
+    (let* ((rows     (map (lambda (i) (check-response id i))
+                          (range 0 (response-count id))))
+           (verdicts (map (lambda (r) (nth r 1)) rows)))
+      (list
+        (cond
+          ((or (list-contains? verdicts "changed")
+               (list-contains? verdicts "missing")) "changed")
+          ((list-contains? verdicts "unsealed")     "unsealed")
+          (else                                     "intact"))
+        rows))))
+
+;; The human-facing form: prints, returns the overall verdict.
+(define (loop-integrity-report id)
+  (let* ((result  (loop-integrity id))
+         (overall (nth result 0))
+         (rows    (nth result 1))
+         (n       (number->string (length rows))))
+    (print (str "Integrity — session " id))
+    (print "")
+    (if (null? rows)
+      (print "  (no responses recorded)")
+      (for-each (lambda (r) (print (str "  " (nth r 1) "\t" (nth r 0)))) rows))
+    (print "")
+    (print
+      (cond
+        ((equal? overall "intact")
+         (str n " response(s) still match the hashes written with them."))
+        ((equal? overall "changed")
+         "At least one response no longer matches what was written here.")
+        ((equal? overall "unsealed")
+         (str "Nothing looks changed, but some responses have no recorded hash; "
+              "those cannot be spoken for."))
+        (else (str "No such session: " id))))
+    (if (not (null? rows))
+      (begin
+        (print "")
+        (print "This shows whether anything changed quietly. It is not proof")
+        (print "against someone who meant to: the hashes live alongside the")
+        (print "session, and could be rewritten with it.")))
+    overall))
 
 
 ;; ── Question Bank ─────────────────────────────────────────────────────────────

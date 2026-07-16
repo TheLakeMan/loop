@@ -23,7 +23,7 @@ telemetry. Built on [Rusty](https://github.com/TheLakeMan/rusty) — a
 zero-dependency Lisp interpreter in Rust — so the whole vessel runs on small,
 ordinary hardware with a local LLM.
 
-**Version:** 0.3.1
+**Version:** 0.4.0
 
 ## Quickstart
 
@@ -79,6 +79,33 @@ slow hardware, raise the request timeout for portraits:
 - A failed portrait costs nothing: the transcripts and the witness survive,
   and `(loop-remember)` can simply be run again.
 
+## Has anything changed since it was said?
+
+Every response is hashed (SHA-256) the moment it is written. Later — a month
+later, a machine later — `(loop-integrity "session-id")` re-reads what is on
+disk and tells you whether it still says what was said:
+
+```lisp
+(loop-integrity-report "loop-Marta-1783394592")
+;;   ok        ~/.loop/responses/loop-Marta-1783394592-0.txt
+;;   ok        ~/.loop/responses/loop-Marta-1783394592-1.txt
+;;   changed   ~/.loop/responses/loop-Marta-1783394592-2.txt
+```
+
+Per response: `ok`, `changed`, `missing` (the file is gone), or `unsealed` (no
+hash was recorded, so the check declines to speak for it). `(loop-integrity id)`
+returns the same thing as data — `(overall rows)` — if you'd rather act on it
+than read it.
+
+**What this is, exactly.** It is tamper-*evidence*, scoped to one machine: it
+tells you nothing was changed *quietly* — by a stray editor, a bad sync, a
+half-finished restore. It is **not** unforgeable and not adversarial crypto:
+the hashes live in the same `~/.rusty/memory.lisp` the session is indexed from,
+so anyone who can rewrite a transcript can rewrite its hash in the same breath.
+Resisting *that* would need an anchor somewhere they cannot reach, which loop
+deliberately does not have — it is a local vessel, not a notary. The honest
+promise is the small one: if these words changed, you will know.
+
 ## Files
 
 | File | Role |
@@ -87,8 +114,10 @@ slow hardware, raise the request timeout for portraits:
 | `loop-core.lisp` | interview engine: sessions, turns, advisor, persistence |
 | `loop-questions.lisp` | question bank — 22 questions across 10 categories |
 | `loop-soul.lisp` | the soul layer: portrait + witness + `(loop-remember)` |
-| `loop-test.lisp` | hermetic golden test — 12 invariants, no LLM, no disk |
+| `loop-test.lisp` | hermetic golden test — 14 invariants, no LLM, no disk |
 | `expected_loop.txt` | the golden output |
+| `loop-integrity-drive.lisp` | drives a real on-disk session (run under a throwaway `$HOME`) |
+| `loop-integrity-verify.lisp` | reports the integrity verdict for that session |
 
 ## Tests
 
@@ -96,9 +125,18 @@ slow hardware, raise the request timeout for portraits:
 ./run_tests.sh
 ```
 
-The golden test is fully hermetic: the LLM seams, the clock, and every disk
-path are stubbed in-memory, so it runs identically anywhere `rusty` runs and
-never touches a real `~/.loop/` or `~/.rusty/`.
+Three checks. The **golden test** is fully hermetic: the LLM seams, the clock,
+and every disk path are stubbed in-memory, so it runs identically anywhere
+`rusty` runs and never touches a real `~/.loop/` or `~/.rusty/`. The two
+**real-disk checks** run the genuine persistence path under a throwaway `$HOME`
+— one proves a session only ever *adds* its own `loop.*` keys, leaving
+pre-existing memory byte-identical; the other proves the integrity check both
+reports `intact` on an untouched session *and* actually bites, catching an
+edited transcript and a deleted one. Your real `~/.loop/` and `~/.rusty/` are
+never read or written by any of them.
+
+loop needs [Rusty](https://github.com/TheLakeMan/rusty) **0.45.0 or newer**
+(that release added the `file-hash` builtin the integrity check is built on).
 
 ## License
 

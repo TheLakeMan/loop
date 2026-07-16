@@ -65,6 +65,46 @@ SEED
 }
 integrity_check
 
+# ── Hash check: the integrity report is honest, and it BITES ───────────────────
+# Drives a real session on disk, then asks (loop-integrity id) three things:
+# an untouched session reports "intact"; an EDITED transcript reports "changed";
+# a DELETED one reports "changed" too. The last two are the point — a check that
+# always said "intact" would satisfy the first assertion forever.
+hash_check() {
+  local label="integrity hashes — intact when untouched, changed when tampered"
+  local th; th="$(mktemp -d "${TMPDIR:-/tmp}/loop-hash-XXXXXX")"
+  case "$th" in /tmp/*|"${TMPDIR%/}"/*) ;; *) echo "❌  $label (unsafe tmp: $th)"; fail=1; return;; esac
+  mkdir -p "$th/.rusty"
+
+  HOME="$th" "$RUSTY" loop-integrity-drive.lisp >/dev/null 2>&1
+
+  verdict() { HOME="$th" "$RUSTY" loop-integrity-verify.lisp 2>&1 \
+                | grep '^VERDICT ' | head -1 | cut -d' ' -f2; }
+
+  local ok=1 v
+  # (a) an untouched session vouches for every response it wrote
+  v="$(verdict)"
+  [ "$v" = "intact" ] || { echo "   untouched session reported '$v', expected intact"; ok=0; }
+
+  # (b) edit one stored transcript — one byte is enough
+  local victim; victim="$(ls "$th"/.loop/responses/*.txt 2>/dev/null | head -1)"
+  if [ -z "$victim" ]; then
+    echo "   no transcript to tamper with"; ok=0
+  else
+    printf 'x' >> "$victim"
+    v="$(verdict)"
+    [ "$v" = "changed" ] || { echo "   edited transcript reported '$v', expected changed"; ok=0; }
+    # (c) delete it outright — a vanished transcript is a change, not a silence
+    rm -f "$victim"
+    v="$(verdict)"
+    [ "$v" = "changed" ] || { echo "   deleted transcript reported '$v', expected changed"; ok=0; }
+  fi
+
+  rm -rf "$th"
+  if [ "$ok" -eq 1 ]; then echo "✅  $label"; else echo "❌  $label"; fail=1; fi
+}
+hash_check
+
 if [ "$fail" -eq 0 ]; then
   echo "🎉 ALL PASSED"
 else

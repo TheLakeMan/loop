@@ -79,11 +79,24 @@
 (define (portraits-dir) "/fake/loop/portraits")
 (define (witness-dir)   "/fake/loop/witness")
 
+;; Fake filesystem for the integrity check's file-hash seam: a path -> hash
+;; table. Stubbing file-hash (not the hash values themselves) is the point —
+;; the verdict logic is what's under test here, and that real SHA-256 is real
+;; SHA-256 is Rusty's own known-answer test to make, not loop's. A path with no
+;; entry hashes to Nil, exactly as the builtin does for an unreadable file.
+(define *fake-files* (list))
+(define (fake-file! path hash)
+  (set! *fake-files* (cons (list path hash) *fake-files*)))
+(define (file-hash path)
+  (let ((hit (filter (lambda (p) (equal? (nth p 0) path)) *fake-files*)))
+    (if (null? hit) (nil) (nth (nth hit 0) 1))))
+
 (define (reset-all)
   (set! *mem* (list))
   (set! *responses* (list))
   (set! *advice-script* (list))
   (set! *writes* (list))
+  (set! *fake-files* (list))
   (set! *llm-prompt* "")
   (set! *llm-calls* 0))
 
@@ -346,6 +359,66 @@
               "12d remember wrote the portrait")
 (assert-true (string-contains? (nth (nth *writes* 0) 1) "keeps no memory")
              "12e remember witness text is the honest one")
+
+
+;; ── Invariant 13: Integrity verdicts, one per response ─────────────────────────
+;; Four responses, one of each verdict, so every branch is pinned at once:
+;; r0 matches its hash, r1's file changed, r2's file is gone, r3 was never
+;; sealed. The rows are positional — a check that reported the right verdicts
+;; against the wrong files would be worse than useless.
+(reset-all)
+(remember (skey "loop-I-1000000" "status") "active")
+(remember (skey "loop-I-1000000" "rcount") "4")
+(fake-file! "/fake/loop/responses/loop-I-1000000-0.txt" "HASH-A")
+(remember (rhash-key "loop-I-1000000" 0) "HASH-A")           ; matches  -> ok
+(fake-file! "/fake/loop/responses/loop-I-1000000-1.txt" "HASH-EDITED")
+(remember (rhash-key "loop-I-1000000" 1) "HASH-B")           ; differs  -> changed
+(remember (rhash-key "loop-I-1000000" 2) "HASH-C")           ; no file  -> missing
+(fake-file! "/fake/loop/responses/loop-I-1000000-3.txt" "HASH-D")  ; no hash -> unsealed
+(let* ((r    (loop-integrity "loop-I-1000000"))
+       (rows (nth r 1)))
+  (assert-equal 4 (length rows) "13a one row per recorded response")
+  (assert-equal "/fake/loop/responses/loop-I-1000000-0.txt" (nth (nth rows 0) 0)
+                "13b rows name the response file they judge")
+  (assert-equal "ok"       (nth (nth rows 0) 1) "13c matching response -> ok")
+  (assert-equal "changed"  (nth (nth rows 1) 1) "13d edited response -> changed")
+  (assert-equal "missing"  (nth (nth rows 2) 1) "13e vanished response -> missing")
+  (assert-equal "unsealed" (nth (nth rows 3) 1) "13f unhashed response -> unsealed")
+  (assert-equal "changed"  (nth r 0) "13g overall: any change outranks the rest"))
+
+;; ── Invariant 14: overall verdict keeps its three claims apart ─────────────────
+;; "intact" is a claim about every response; "unsealed" is absence of evidence,
+;; NOT evidence of absence — a run that can't speak for a file must not report
+;; intact. "missing" is a change: a deleted transcript is the loudest one.
+;; NB: each scenario is built from reset-all rather than by un-remembering a key
+;; — `forget` is NOT stubbed here, so calling it would reach the real
+;; ~/.rusty/memory.lisp. This test touches no real file, and stays that way.
+(define (seal-two-responses)
+  (reset-all)
+  (remember (skey "loop-I-1000000" "status") "active")
+  (remember (skey "loop-I-1000000" "rcount") "2")
+  (fake-file! "/fake/loop/responses/loop-I-1000000-0.txt" "H0")
+  (remember (rhash-key "loop-I-1000000" 0) "H0")
+  (fake-file! "/fake/loop/responses/loop-I-1000000-1.txt" "H1"))
+
+(seal-two-responses)
+(remember (rhash-key "loop-I-1000000" 1) "H1")
+(assert-equal "intact" (nth (loop-integrity "loop-I-1000000") 0)
+              "14a all responses match -> intact")
+(seal-two-responses)                     ; r1 sealed by nobody
+(assert-equal "unsealed" (nth (loop-integrity "loop-I-1000000") 0)
+              "14b one unsealed response -> unsealed, never intact")
+(seal-two-responses)
+(remember (rhash-key "loop-I-1000000" 1) "H1")
+(set! *fake-files* (list (list "/fake/loop/responses/loop-I-1000000-0.txt" "H0")))
+(assert-equal "changed" (nth (loop-integrity "loop-I-1000000") 0)
+              "14c a deleted transcript is a change, not a silence")
+;; A session nobody started is not "intact" — there is nothing to vouch for.
+(reset-all)
+(assert-equal "unknown-session" (nth (loop-integrity "loop-nope-0") 0)
+              "14d unknown session -> unknown-session, not intact")
+(assert-equal (list) (nth (loop-integrity "loop-nope-0") 1)
+              "14e unknown session reports no rows")
 
 
 (print "LOOP TESTS PASSED")

@@ -1,4 +1,4 @@
-Loop v0.3.1 core loaded.
+Loop v0.4.0 core loaded.
 Loop questions loaded: 22 questions across 10 categories.
 Loop soul loaded (portrait + witness).
 1a start category is childhood
@@ -88,4 +88,16 @@ If this is kept, keep it as what it is — not a mind that remembers Marguerite,
 12c remember wrote the witness
 12d remember wrote the portrait
 12e remember witness text is the honest one
+13a one row per recorded response
+13b rows name the response file they judge
+13c matching response -> ok
+13d edited response -> changed
+13e vanished response -> missing
+13f unhashed response -> unsealed
+13g overall: any change outranks the rest
+14a all responses match -> intact
+14b one unsealed response -> unsealed, never intact
+14c a deleted transcript is a change, not a silence
+14d unknown session -> unknown-session, not intact
+14e unknown session reports no rows
 LOOP TESTS PASSED

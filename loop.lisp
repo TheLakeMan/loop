@@ -11,7 +11,7 @@
 
 (print "")
 (print "╔════════════════════════════════════╗")
-(print "║           L O O P  v0.3            ║")
+(print "║           L O O P  v0.4            ║")
 (print "║   A memory vessel for the living.  ║")
 (print "╚════════════════════════════════════╝")
 (print "")
@@ -22,4 +22,5 @@
 (print "  (loop-status)            — current session info")
 (print "  (loop-sessions)          — list all sessions")
 (print "  (loop-remember)          — keep the portrait + witness")
+(print "  (loop-integrity \"id\")   — has anything changed since it was said?")
 (print "")
