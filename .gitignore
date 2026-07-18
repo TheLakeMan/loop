@@ -1,3 +1,6 @@
 *.png
 card.html
 /tmp/
+
+# Local-only — Claude tooling, not the workings of running loop; never push.
+.claude/
